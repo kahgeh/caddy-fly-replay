@@ -1,0 +1,31 @@
+{
+    order fly_replay before reverse_proxy
+    auto_https off
+}
+
+http://localhost:3000 {
+    fly_replay {
+        enable_cache true
+        cache_dir ./cache
+        cache_ttl 300  # default 5 minutes
+        debug true
+        
+        # Map app names to local ports
+        # Platform will return these app names in fly-replay header
+        apps {
+            user123-app {
+                domain localhost:9001
+            }
+            user456-app {
+                domain localhost:9002
+            }
+            user789-app {
+                domain localhost:9003
+            }
+            # ... more user apps as needed
+        }
+    }
+    
+    # The platform - it decides all routing
+    reverse_proxy localhost:8080
+}

@@ -1,0 +1,8 @@
+# Build output
+bin/
+
+# Log files
+*.log
+
+# Test artifacts
+test/*.log
