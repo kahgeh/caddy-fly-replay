@@ -28,7 +28,7 @@ $(BIN_DIR):
 start-caddy:
 	@echo "Starting Caddy..."
 	@if ! lsof -ti:3000 > /dev/null 2>&1; then \
-		./caddy run --config Caddyfile.example > caddy.log 2>&1 & \
+		./caddy run --config test/Caddyfile > caddy.log 2>&1 & \
 		echo "Caddy started on port 3000 (PID: $$!)"; \
 	else \
 		echo "Caddy already running on port 3000"; \
