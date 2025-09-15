@@ -6,3 +6,4 @@ bin/
 
 # Test artifacts
 test/*.log
+caddy
