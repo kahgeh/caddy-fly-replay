@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	
+
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 )
 
@@ -25,9 +25,9 @@ type ResponseRecorder struct {
 func NewResponseRecorder(w http.ResponseWriter) *ResponseRecorder {
 	return &ResponseRecorder{
 		ResponseWriter: w,
-		body:          new(bytes.Buffer),
-		header:        make(http.Header),
-		statusCode:    http.StatusOK,
+		body:           new(bytes.Buffer),
+		header:         make(http.Header),
+		statusCode:     http.StatusOK,
 	}
 }
 
@@ -54,10 +54,10 @@ func (r *ResponseRecorder) WriteResponse() error {
 			r.ResponseWriter.Header().Add(key, value)
 		}
 	}
-	
+
 	// Write status code
 	r.ResponseWriter.WriteHeader(r.statusCode)
-	
+
 	// Write body
 	_, err := r.ResponseWriter.Write(r.body.Bytes())
 	return err
@@ -66,14 +66,14 @@ func (r *ResponseRecorder) WriteResponse() error {
 // ServeHTTP implements caddyhttp.MiddlewareHandler.
 func (f *FlyReplay) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
 	fullPath := r.Host + r.URL.Path
-	
+
 	// Buffer the request body for potential replay
 	var bodyBytes []byte
 	if r.Body != nil {
 		bodyBytes, _ = io.ReadAll(r.Body)
 		r.Body.Close()
 	}
-	
+
 	// Step 1: Check cache
 	if f.EnableCache && f.cache != nil {
 		if cached, found := f.cache.Get(fullPath); found {
@@ -81,12 +81,12 @@ func (f *FlyReplay) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddy
 				w.Header().Set("X-Cache", "HIT")
 				w.Header().Set("X-Cached-App", cached.Target)
 			}
-			
+
 			// Restore body for forwarding to cached app
 			if bodyBytes != nil {
 				r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 			}
-			
+
 			// Forward directly to cached app
 			if app, ok := f.Apps[cached.Target]; ok {
 				return f.forwardToApp(w, r, app.Domain)
@@ -95,23 +95,23 @@ func (f *FlyReplay) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddy
 			w.Header().Set("X-Cache", "MISS")
 		}
 	}
-	
+
 	// Restore body for platform
 	if bodyBytes != nil {
 		r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 	}
-	
+
 	// Step 2: Ask platform for routing decision
 	rec := NewResponseRecorder(w)
 	err := next.ServeHTTP(rec, r)
 	if err != nil {
 		return err
 	}
-	
+
 	// Step 3: Check for replay instruction
 	if replayHeader := rec.Header().Get("fly-replay"); replayHeader != "" {
 		appName := parseAppName(replayHeader)
-		
+
 		// Check for cache instruction
 		if f.EnableCache && f.cache != nil {
 			if cachePattern := rec.Header().Get("fly-replay-cache"); cachePattern != "" {
@@ -129,11 +129,11 @@ func (f *FlyReplay) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddy
 							ttl = parsed
 						}
 					}
-					
+
 					// Cache: pattern -> app mapping
 					cacheKey := r.Host + cachePattern
 					f.cache.Set(fullPath, cacheKey, appName, ttl)
-					
+
 					if f.Debug {
 						w.Header().Set("X-Cache-Action", "STORED")
 						w.Header().Set("X-Cache-Pattern", cacheKey)
@@ -141,26 +141,27 @@ func (f *FlyReplay) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddy
 				}
 			}
 		}
-		
+
 		// Preserve trace ID from platform response if present
 		if traceID := rec.Header().Get("X-Trace-ID"); traceID != "" {
 			r.Header.Set("X-Trace-ID", traceID)
 		}
-		
+
 		// Restore body for forwarding to app
 		if bodyBytes != nil {
 			r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 		}
-		
+
 		// Forward to the app
 		if app, ok := f.Apps[appName]; ok {
 			return f.forwardToApp(w, r, app.Domain)
 		}
-		
-		// App not configured, return error
-		return fmt.Errorf("unknown app: %s", appName)
+
+		http.Error(w, fmt.Sprintf("Bad Gateway: unknown app '%s'", appName), http.StatusBadGateway)
+		return nil
+
 	}
-	
+
 	// No replay, return platform's response
 	return rec.WriteResponse()
 }
@@ -184,21 +185,22 @@ func (f *FlyReplay) forwardToApp(w http.ResponseWriter, r *http.Request, targetD
 	if !strings.HasPrefix(targetDomain, "http://") && !strings.HasPrefix(targetDomain, "https://") {
 		targetDomain = "http://" + targetDomain
 	}
-	
+
 	target, err := url.Parse(targetDomain)
 	if err != nil {
 		return fmt.Errorf("invalid target domain: %w", err)
 	}
-	
+
 	// Create reverse proxy
 	proxy := httputil.NewSingleHostReverseProxy(target)
-	
+
 	// Add debug headers if enabled
 	if f.Debug {
 		w.Header().Set("X-Forwarded-To", targetDomain)
 	}
-	
+
 	// Serve the request
 	proxy.ServeHTTP(w, r)
 	return nil
 }
+
