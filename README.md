@@ -1,6 +1,6 @@
 # Caddy Fly-Replay Module
 
-A Caddy module that implements Fly.io's replay pattern for intelligent request routing with caching support.
+A Caddy module that implements Fly.io's replay pattern for request routing with caching support for local development scenario. 
 
 95% written by claude code.
 
@@ -30,37 +30,7 @@ xcaddy build --with github.com/kahgeh/caddy-fly-replay=.
 
 ### Caddyfile Example
 
-```caddyfile
-{
-    order fly_replay before reverse_proxy
-    auto_https off
-}
-
-http://localhost:3000 {
-    fly_replay {
-        enable_cache true
-        cache_dir ./cache
-        cache_ttl 300  # 5 minutes
-        debug true
-        
-        # Map app names to destinations
-        apps {
-            user123-app {
-                domain localhost:9001
-            }
-            user456-app {
-                domain localhost:9002
-            }
-            user789-app {
-                domain localhost:9003
-            }
-        }
-    }
-    
-    # The platform/router service
-    reverse_proxy localhost:8080
-}
-```
+See test/Caddyfile.
 
 ## How It Works
 
@@ -92,7 +62,7 @@ http://localhost:3000 {
 
 ## Testing
 
-The module includes comprehensive integration tests:
+The module includes integration tests:
 
 ```bash
 # Run all tests
