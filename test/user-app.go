@@ -42,7 +42,12 @@ func main() {
 		}
 		
 		log.Printf("[%s] [TraceID: %s] Received request: %s %s", appName, traceID, r.Method, r.URL.Path)
-		
+
+		// Check and log cache status
+		if cacheStatus := r.Header.Get("fly-replay-cache-status"); cacheStatus != "" {
+			log.Printf("[%s] [TraceID: %s] Cache Status: %s", appName, traceID, cacheStatus)
+		}
+
 		// Log all received headers
 		log.Printf("[%s] [TraceID: %s] Request Headers:", appName, traceID)
 		for name, values := range r.Header {
@@ -79,13 +84,14 @@ func main() {
 		
 		// Build response that includes received data
 		response := map[string]interface{}{
-			"app":       appName,
-			"user":      *userID,
-			"traceId":   traceID,
-			"path":      r.URL.Path,
-			"method":    r.Method,
-			"timestamp": time.Now().Unix(),
-			"message":   fmt.Sprintf("Hello from %s's application!", *userID),
+			"app":         appName,
+			"user":        *userID,
+			"traceId":     traceID,
+			"path":        r.URL.Path,
+			"method":      r.Method,
+			"timestamp":   time.Now().Unix(),
+			"cacheStatus": r.Header.Get("fly-replay-cache-status"),
+			"message":     fmt.Sprintf("Hello from %s's application!", *userID),
 			"received": map[string]interface{}{
 				"headers": func() map[string][]string {
 					// Return custom headers only

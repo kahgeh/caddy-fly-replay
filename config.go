@@ -29,10 +29,11 @@ type PathCache struct {
 
 // CacheEntry represents a cached routing decision
 type CacheEntry struct {
-	Path      string    // full path including domain
-	Target    string    // app name from fly-replay header
-	Pattern   string    // pattern from fly-replay-cache header
-	ExpiresAt time.Time
+	Path        string    // full path including domain
+	Target      string    // app name from fly-replay header
+	Pattern     string    // pattern from fly-replay-cache header
+	AllowBypass bool      // whether the cache entry can be bypassed
+	ExpiresAt   time.Time
 }
 
 // NewPathCache creates a new PathCache instance

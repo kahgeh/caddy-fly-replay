@@ -29,15 +29,16 @@ func (c *PathCache) Get(fullPath string) (*CacheEntry, bool) {
 }
 
 // Set stores a new cache entry
-func (c *PathCache) Set(path, pattern, target string, ttl int) {
+func (c *PathCache) Set(path, pattern, target string, ttl int, allowBypass bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	c.store[pattern] = &CacheEntry{
-		Path:      path,
-		Target:    target,
-		Pattern:   pattern,
-		ExpiresAt: time.Now().Add(time.Duration(ttl) * time.Second),
+		Path:        path,
+		Target:      target,
+		Pattern:     pattern,
+		AllowBypass: allowBypass,
+		ExpiresAt:   time.Now().Add(time.Duration(ttl) * time.Second),
 	}
 }
 

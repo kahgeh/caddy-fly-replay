@@ -74,25 +74,36 @@ func (f *FlyReplay) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddy
 		r.Body.Close()
 	}
 
+	// Track cache status for fly-replay-cache-status header
+	var cacheStatus string
+
 	// Step 1: Check cache
 	if f.EnableCache && f.cache != nil {
 		if cached, found := f.cache.Get(fullPath); found {
-			if f.Debug {
-				w.Header().Set("X-Cache", "HIT")
-				w.Header().Set("X-Cached-App", cached.Target)
-			}
+			// Check if client wants to bypass cache and it's allowed
+			if cached.AllowBypass && r.Header.Get("fly-replay-cache-control") == "skip" {
+				// Cache bypass - will continue to platform
+				cacheStatus = "bypass"
+			} else {
+				// Cache hit - serve from cache
+				cacheStatus = "hit"
+				if f.Debug {
+					w.Header().Set("X-Cached-App", cached.Target)
+				}
 
-			// Restore body for forwarding to cached app
-			if bodyBytes != nil {
-				r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-			}
+				// Restore body for forwarding to cached app
+				if bodyBytes != nil {
+					r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+				}
 
-			// Forward directly to cached app
-			if app, ok := f.Apps[cached.Target]; ok {
-				return f.forwardToApp(w, r, app.Domain)
+				// Set cache status header for the app
+				r.Header.Set("fly-replay-cache-status", cacheStatus)
+
+				// Forward directly to cached app
+				if app, ok := f.Apps[cached.Target]; ok {
+					return f.forwardToApp(w, r, app.Domain)
+				}
 			}
-		} else if f.Debug {
-			w.Header().Set("X-Cache", "MISS")
 		}
 	}
 
@@ -130,13 +141,22 @@ func (f *FlyReplay) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddy
 						}
 					}
 
+					// Check if bypass is allowed
+					allowBypass := false
+					if bypassHeader := rec.Header().Get("fly-replay-cache-allow-bypass"); bypassHeader == "yes" {
+						allowBypass = true
+					}
+
 					// Cache: pattern -> app mapping
 					cacheKey := r.Host + cachePattern
-					f.cache.Set(fullPath, cacheKey, appName, ttl)
+					f.cache.Set(fullPath, cacheKey, appName, ttl, allowBypass)
 
 					if f.Debug {
 						w.Header().Set("X-Cache-Action", "STORED")
 						w.Header().Set("X-Cache-Pattern", cacheKey)
+						if allowBypass {
+							w.Header().Set("X-Cache-Allow-Bypass", "yes")
+						}
 					}
 				}
 			}
@@ -150,6 +170,15 @@ func (f *FlyReplay) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddy
 		// Restore body for forwarding to app
 		if bodyBytes != nil {
 			r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+		}
+
+		// Set cache status header for the app
+		if cacheStatus == "bypass" {
+			// We bypassed the cache and went to platform
+			r.Header.Set("fly-replay-cache-status", "bypass")
+		} else {
+			// Cache miss - had to go to platform
+			r.Header.Set("fly-replay-cache-status", "miss")
 		}
 
 		// Forward to the app

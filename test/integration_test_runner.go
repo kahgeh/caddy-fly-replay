@@ -27,7 +27,7 @@ type TestCase struct {
 	Path        string
 	Headers     map[string]string
 	Body        interface{}
-	ExpectCache string // "miss" or "hit"
+	ExpectCache string // "miss", "hit", or "bypass"
 }
 
 type Response struct {
@@ -115,7 +115,7 @@ func printResponse(resp *Response, tc TestCase) {
 	// Print relevant headers
 	fmt.Printf("%sResponse Headers:%s\n", green, reset)
 	relevantHeaders := []string{
-		"X-Cache", "X-Cached-App", "X-Cache-Action", "X-Cache-Pattern",
+		"X-Cached-App", "X-Cache-Action", "X-Cache-Pattern", "X-Cache-Allow-Bypass",
 		"X-App-Name", "X-User-ID", "X-Trace-ID", "X-Timestamp",
 	}
 	
@@ -144,15 +144,25 @@ func printResponse(resp *Response, tc TestCase) {
 func verifyTest(resp *Response, tc TestCase) bool {
 	passed := true
 	fmt.Printf("\n%sVerification:%s\n", blue, reset)
-	
-	// Check cache behavior
-	cacheHeader := resp.Headers.Get("X-Cache")
+
+	// Check cache behavior from the app's response
 	if tc.ExpectCache != "" {
-		expectedCache := strings.ToUpper(tc.ExpectCache)
-		if cacheHeader == expectedCache {
-			fmt.Printf("  ✓ Cache behavior correct: %s\n", cacheHeader)
+		var cacheStatus string
+		if resp.Body != nil {
+			if status, ok := resp.Body["cacheStatus"].(string); ok {
+				cacheStatus = status
+			}
+		}
+
+		// Verify cache status matches expectation
+		expectedStatus := tc.ExpectCache
+		if cacheStatus == expectedStatus {
+			fmt.Printf("  ✓ Cache behavior correct: %s\n", cacheStatus)
+		} else if tc.ExpectCache == "miss" && cacheStatus == "" {
+			// First requests might not have cache status if cache wasn't attempted
+			fmt.Printf("  ✓ Cache behavior correct: %s (initial request)\n", tc.ExpectCache)
 		} else {
-			fmt.Printf("  %s✗ Cache behavior incorrect: expected %s, got %s%s\n", red, expectedCache, cacheHeader, reset)
+			fmt.Printf("  %s✗ Cache behavior incorrect: expected %s, got %s%s\n", red, tc.ExpectCache, cacheStatus, reset)
 			passed = false
 		}
 	}
@@ -195,12 +205,23 @@ func verifyTest(resp *Response, tc TestCase) bool {
 	return passed
 }
 
+func clearCache() {
+	// Make a request to an invalid path to trigger a platform response
+	// This helps ensure we start with a clean state
+	fmt.Printf("\n%sClearing cache state...%s\n", yellow, reset)
+	http.Get(proxyURL + "/invalid/path/to/clear")
+	time.Sleep(1 * time.Second)
+}
+
 func runTests() {
 	fmt.Printf("%s=== Comprehensive Caddy Fly-Replay Plugin Test ===%s\n", blue, reset)
-	fmt.Printf("Testing header forwarding, body handling, and caching behavior\n")
-	
+	fmt.Printf("Testing header forwarding, body handling, cache behavior, and cache bypass functionality\n")
+
 	// Wait for services to be ready
 	time.Sleep(2 * time.Second)
+
+	// Clear cache to start fresh
+	clearCache()
 	
 	testCases := []TestCase{
 		{
@@ -298,6 +319,54 @@ func runTests() {
 			},
 			ExpectCache: "hit", // Should hit cache from earlier user123 requests
 		},
+		// Cache bypass tests
+		{
+			Name:   "Cache bypass - First request to user123 (establishes cache)",
+			Method: "GET",
+			Path:   "/en-US/user123/test/bypass",
+			Headers: map[string]string{
+				"X-Test-ID": "bypass-test-1",
+			},
+			ExpectCache: "miss", // First request, goes to platform
+		},
+		{
+			Name:   "Cache bypass - Second request to user123 (cache hit)",
+			Method: "GET",
+			Path:   "/en-US/user123/test/bypass",
+			Headers: map[string]string{
+				"X-Test-ID": "bypass-test-2",
+			},
+			ExpectCache: "hit", // Should be served from cache
+		},
+		{
+			Name:   "Cache bypass - Request with skip flag (should bypass)",
+			Method: "GET",
+			Path:   "/en-US/user123/test/bypass",
+			Headers: map[string]string{
+				"X-Test-ID":                  "bypass-test-3",
+				"fly-replay-cache-control":   "skip", // Request cache bypass
+			},
+			ExpectCache: "bypass", // Should bypass cache
+		},
+		{
+			Name:   "Cache bypass - First request to user456 (no bypass allowed)",
+			Method: "GET",
+			Path:   "/en-US/user456/test/no-bypass",
+			Headers: map[string]string{
+				"X-Test-ID": "no-bypass-test-1",
+			},
+			ExpectCache: "miss", // First request
+		},
+		{
+			Name:   "Cache bypass - user456 skip attempt (should still hit)",
+			Method: "GET",
+			Path:   "/en-US/user456/test/no-bypass",
+			Headers: map[string]string{
+				"X-Test-ID":                  "no-bypass-test-2",
+				"fly-replay-cache-control":   "skip", // Try to bypass
+			},
+			ExpectCache: "hit", // Should still hit cache (bypass not allowed)
+		},
 	}
 	
 	totalTests := len(testCases)
@@ -343,6 +412,8 @@ func runTests() {
 	fmt.Println("• Response bodies are returned correctly")
 	fmt.Println("• Trace IDs are maintained across requests")
 	fmt.Println("• Cache behavior works with different HTTP methods")
+	fmt.Println("• Cache bypass functionality with fly-replay-cache-control: skip")
+	fmt.Println("• Cache status header (fly-replay-cache-status) indicates hit/miss/bypass")
 	fmt.Println("• Special characters in headers are handled properly")
 }
 

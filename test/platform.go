@@ -64,6 +64,12 @@ func main() {
 			cachePattern := fmt.Sprintf("/%s/%s/*", locale, userID)
 			w.Header().Set("fly-replay-cache", cachePattern)
 			w.Header().Set("fly-replay-cache-ttl-secs", "300") // Cache for 5 minutes
+
+			// Allow cache bypass for user123 (for testing)
+			if userID == "user123" {
+				w.Header().Set("fly-replay-cache-allow-bypass", "yes")
+				log.Printf("[PLATFORM] [TraceID: %s] Cache bypass allowed for %s", traceID, userID)
+			}
 			
 			log.Printf("[PLATFORM] [TraceID: %s] Routing to %s, cache pattern: %s%s", traceID, appName, r.Host, cachePattern)
 			
